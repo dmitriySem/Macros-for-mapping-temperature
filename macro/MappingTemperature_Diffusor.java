@@ -31,8 +31,6 @@ public class MappingTemperature_Diffusor extends StarMacro {
 
         CreateXYZTable(sim, cylindricalCoordinateSystem, solutionRepresentation, primitiveFieldFunction, list);
 
-
-
     }
 
 
