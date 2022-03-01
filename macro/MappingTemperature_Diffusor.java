@@ -6,13 +6,15 @@ package macro;
 
 import java.io.File;
 import java.util.*;
+import java.util.stream.Collectors;
 
 import star.base.report.MaxReport;
 import star.base.report.MinReport;
+import star.base.report.Report;
 import star.cae.common.CaeImportManager;
 import star.common.*;
 import star.base.neo.*;
-import star.post.SolutionRepresentation;
+import star.post.*;
 
 public class MappingTemperature_Diffusor extends StarMacro {
 
@@ -40,16 +42,22 @@ public class MappingTemperature_Diffusor extends StarMacro {
         CFDParts.put("1/114.1/114 lopatka spr app",new double[]{0,0.06,3.157894});
         CFDParts.put("1/114.1/114",new double[]{0,0,3.157894});
 
+        String nameSimhFile = "Pereh Rezhim";
         double [] PointTime = {288}; //20
+        String pathToModel = "20220221_FEM1_Diff_for_CFD_R1" + File.separator + "model_01.inp";
+//        String pathToModel = "20220221_FEM2_Sub_Diff_for_CFD_R1" + File.separator + "model_01.inp";
 
 
 
         Simulation sim = getActiveSimulation();
-        SolutionRepresentation solutionRepresentation =
-                ((SolutionRepresentation) sim.getRepresentationManager().getObject("Pereh Rezhim"));
 
-        String pathToModel = "20220221_FEM1_Diff_for_CFD_R1" + File.separator + "model_01.inp";
-//        String pathToModel = "20220221_FEM2_Sub_Diff_for_CFD_R1" + File.separator + "model_01.inp";
+        SolutionRepresentation solutionRepresentation =
+                ((SolutionRepresentation) sim.getRepresentationManager().getObject(nameSimhFile));
+
+        SolutionHistory solutionHistory = sim.get(SolutionHistoryManager.class).getObject(nameSimhFile);
+        RecordedSolutionView recView = solutionHistory.createRecordedSolutionView(true);
+        solutionHistory.rescanFile();
+
         String WorkPath = sim.getSessionDir() + File.separator + pathToModel;
         ImportCAEModel(sim, WorkPath);
 
@@ -78,12 +86,19 @@ public class MappingTemperature_Diffusor extends StarMacro {
         double maxCAEModel = MaxTheta(sim, cylindricalCoordinateSystem, importedVolume_0);
         double minCAEModel = MinTheta(sim, cylindricalCoordinateSystem, importedVolume_0);
 
-        for (int time = 0; time < PointTime.length; time++) {
+        double soluTime = 0;
+
+        for (int CountTime = 0; CountTime < PointTime.length; CountTime++) {
+            recView.setPhysicalTime(PointTime[CountTime]);
+            soluTime = recView.getPhysicalTime();
+            sim.println("\n----------Start processing soluTime="+soluTime+"s. State "+CountTime+"  from  "+ PointTime.length+"----------");
             for (String key : CFDParts.keySet()) {
                 Region region_0 = sim.getRegionManager().getRegion(key);
-                CreateXYZTable(sim, cylindricalCoordinateSystem, solutionRepresentation, primitiveFieldFunction, region_0);
+                String table = CreateXYZTable(sim, cylindricalCoordinateSystem, solutionRepresentation, primitiveFieldFunction, region_0);
+                DeliteXYZTable(sim, table);
             }
         }
+
 
 
 
@@ -93,6 +108,7 @@ public class MappingTemperature_Diffusor extends StarMacro {
 
         MaxReport maxReport_0 =
                 simulation_0.getReportManager().createReport(MaxReport.class);
+        maxReport_0.setPresentationName("maxTheta_" + object.toString());
         PrimitiveFieldFunction primitiveFieldFunction_0 =
                 ((PrimitiveFieldFunction) simulation_0.getFieldFunctionManager().getFunction("Position"));
         VectorComponentFieldFunction vectorComponentFieldFunction_0 =
@@ -101,7 +117,7 @@ public class MappingTemperature_Diffusor extends StarMacro {
         maxReport_0.getParts().setQuery(null);
         maxReport_0.getParts().setObjects(object);
         Units units_2 =
-                ((Units) simulation_0.getUnitsManager().getObject("deg"));
+                simulation_0.getUnitsManager().getObject("deg");
         maxReport_0.setUnits(units_2);
         return maxReport_0.getValue();
     }
@@ -111,6 +127,7 @@ public class MappingTemperature_Diffusor extends StarMacro {
 
         MinReport minReport_0 =
                 simulation_0.getReportManager().createReport(MinReport.class);
+        minReport_0.setPresentationName("minTheta_" + object.toString());
         PrimitiveFieldFunction primitiveFieldFunction_0 =
                 ((PrimitiveFieldFunction) simulation_0.getFieldFunctionManager().getFunction("Position"));
         VectorComponentFieldFunction vectorComponentFieldFunction_0 =
@@ -119,7 +136,7 @@ public class MappingTemperature_Diffusor extends StarMacro {
         minReport_0.getParts().setQuery(null);
         minReport_0.getParts().setObjects(object);
         Units units_2 =
-                ((Units) simulation_0.getUnitsManager().getObject("deg"));
+                simulation_0.getUnitsManager().getObject("deg");
         minReport_0.setUnits(units_2);
         return minReport_0.getValue();
     }
@@ -143,7 +160,7 @@ public class MappingTemperature_Diffusor extends StarMacro {
         return cylindricalCoordinateSystem_1;
     }
 
-    private void CreateXYZTable(Simulation simulation_0, CylindricalCoordinateSystem cylindricalCoordinateSystem_0, SolutionRepresentation solutionRepresentation_0,
+    private String CreateXYZTable(Simulation simulation_0, CylindricalCoordinateSystem cylindricalCoordinateSystem_0, SolutionRepresentation solutionRepresentation_0,
                                 PrimitiveFieldFunction primitiveFieldFunction_0,
                                 NamedObject region_0){
 
@@ -159,6 +176,7 @@ public class MappingTemperature_Diffusor extends StarMacro {
         StringBuilder name = new StringBuilder();
         name.append(region_0.getPresentationName());
         xyzInternalTable_0.export(WorkPath + name + ".csv", ",");
+        return xyzInternalTable_0.getPresentationName();
     }
 
     private void CreateXYZTable(Simulation simulation_0, CylindricalCoordinateSystem cylindricalCoordinateSystem_0, SolutionRepresentation solutionRepresentation_0,
@@ -177,5 +195,33 @@ public class MappingTemperature_Diffusor extends StarMacro {
         StringBuilder name = new StringBuilder();
         region_0.forEach(namedObject -> name.append(namedObject.getPresentationName()).append("_"));
         xyzInternalTable_0.export(WorkPath + name + ".csv", ",");
+    }
+
+    private void DeliteXYZTable(Simulation simulation_0, String name){
+        XyzInternalTable xyzInternalTable_0 =
+                ((XyzInternalTable) simulation_0.getTableManager().getTable(name));
+        simulation_0.getTableManager().remove(xyzInternalTable_0);
+
+    }
+
+    private void removeBodies(Simulation sim, RecordedSolutionView recView){
+
+        sim.get(SolutionViewManager.class).removeSolutionViews(new NeoObjectVector(new Object[] {recView}));
+
+        List<GeometryPart> ListGeomPart = sim.get(SimulationPartManager.class).getParts().stream().
+                filter(p -> p.getPresentationName().contains("PART-1-1")).collect(Collectors.toList());
+        sim.get(SimulationPartManager.class).removeParts(ListGeomPart);
+
+        List<Region> ListCAERegions = sim.getRegionManager().getRegions().stream().
+                filter((Region r) -> r.getPresentationName().contains("PART-1-1")).collect(Collectors.toList());
+        sim.getRegionManager().removeRegions(ListCAERegions);
+
+        List<Report> ListReports = sim.getReportManager().getObjects().stream().
+                filter((Report r) -> r.getPresentationName().matches("maxTheta|minTheta(.*)")).collect(Collectors.toList());
+        sim.getReportManager().removeObjects(ListReports);
+
+
+
+
     }
 }
