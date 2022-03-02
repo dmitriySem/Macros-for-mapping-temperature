@@ -11,6 +11,7 @@ import java.util.stream.Collectors;
 import star.base.report.MaxReport;
 import star.base.report.MinReport;
 import star.base.report.Report;
+import star.cadmodeler.ExportedCartesianCoordinateSystem;
 import star.cae.common.CaeImportManager;
 import star.common.*;
 import star.base.neo.*;
@@ -28,7 +29,7 @@ public class MappingTemperature_Diffusor extends StarMacro {
         CFDParts.put("1/8.1/8 22",new double[]{0,0,45});
         CFDParts.put("5/60",new double[]{0,0,30});
         CFDParts.put("5/60 2",new double[]{0,0,30});
-        CFDParts.put("1/60 otbor v polost 1",new double[]{0,3.5,7.3469});
+        CFDParts.put("1/49 otbor v polost 1",new double[]{0,3.5,7.3469});
         CFDParts.put("1/60 otbor v polost 2",new double[]{0,-20.5,6});
         CFDParts.put("stoika",new double[]{0,-20.6,24});
         CFDParts.put("1/21.1/21 lopatochnyi diff bot",new double[]{0,0.06,17.142857});
@@ -51,12 +52,13 @@ public class MappingTemperature_Diffusor extends StarMacro {
 
         Simulation sim = getActiveSimulation();
 
-        SolutionRepresentation solutionRepresentation =
-                ((SolutionRepresentation) sim.getRepresentationManager().getObject(nameSimhFile));
 
         SolutionHistory solutionHistory = sim.get(SolutionHistoryManager.class).getObject(nameSimhFile);
         RecordedSolutionView recView = solutionHistory.createRecordedSolutionView(true);
         solutionHistory.rescanFile();
+
+        SolutionRepresentation solutionRepresentation =
+                ((SolutionRepresentation) sim.getRepresentationManager().getObject(nameSimhFile));
 
         String WorkPath = sim.getSessionDir() + File.separator + pathToModel;
         ImportCAEModel(sim, WorkPath);
@@ -98,9 +100,7 @@ public class MappingTemperature_Diffusor extends StarMacro {
                 DeliteXYZTable(sim, table);
             }
         }
-
-
-
+        removeBodies(sim, recView, cylindricalCoordinateSystem);
 
     }
 
@@ -166,6 +166,9 @@ public class MappingTemperature_Diffusor extends StarMacro {
 
         XyzInternalTable xyzInternalTable_0 =
                 simulation_0.getTableManager().createTable(XyzInternalTable.class);
+        String replaceName = region_0.getPresentationName();
+        if (region_0.getPresentationName().contains("/")) replaceName = region_0.getPresentationName().replace("/", "_");
+        xyzInternalTable_0.setPresentationName(replaceName);
         xyzInternalTable_0.setExtractVertexData(true);
         xyzInternalTable_0.setRepresentation(solutionRepresentation_0);
         xyzInternalTable_0.getParts().setObjects(region_0);
@@ -173,9 +176,7 @@ public class MappingTemperature_Diffusor extends StarMacro {
         xyzInternalTable_0.setCoordinateSystem(cylindricalCoordinateSystem_0);
         xyzInternalTable_0.extract();
         String WorkPath = simulation_0.getSessionDir() + File.separator;
-        StringBuilder name = new StringBuilder();
-        name.append(region_0.getPresentationName());
-        xyzInternalTable_0.export(WorkPath + name + ".csv", ",");
+        xyzInternalTable_0.export(WorkPath + xyzInternalTable_0.getPresentationName() + ".csv", ",");
         return xyzInternalTable_0.getPresentationName();
     }
 
@@ -204,7 +205,7 @@ public class MappingTemperature_Diffusor extends StarMacro {
 
     }
 
-    private void removeBodies(Simulation sim, RecordedSolutionView recView){
+    private void removeBodies(Simulation sim, RecordedSolutionView recView, CylindricalCoordinateSystem cylindricalCoordinateSystem ){
 
         sim.get(SolutionViewManager.class).removeSolutionViews(new NeoObjectVector(new Object[] {recView}));
 
@@ -217,11 +218,13 @@ public class MappingTemperature_Diffusor extends StarMacro {
         sim.getRegionManager().removeRegions(ListCAERegions);
 
         List<Report> ListReports = sim.getReportManager().getObjects().stream().
-                filter((Report r) -> r.getPresentationName().matches("maxTheta|minTheta(.*)")).collect(Collectors.toList());
+                filter((Report r) -> r.getPresentationName().matches("maxTheta_.*|minTheta_.*")).collect(Collectors.toList());
         sim.getReportManager().removeObjects(ListReports);
 
-
-
-
+        LabCoordinateSystem labCoordinateSystem =
+                sim.getCoordinateSystemManager().getLabCoordinateSystem();
+//        CylindricalCoordinateSystem cylindricalCoordinateSystem_4 =
+//                ((CylindricalCoordinateSystem) labCoordinateSystem.getLocalCoordinateSystemManager().getObject(cylindricalCoordinateSystem.getPresentationName()));
+        labCoordinateSystem.getLocalCoordinateSystemManager().remove(cylindricalCoordinateSystem);
     }
 }
