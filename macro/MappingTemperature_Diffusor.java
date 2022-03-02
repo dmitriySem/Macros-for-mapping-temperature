@@ -57,8 +57,8 @@ public class MappingTemperature_Diffusor extends StarMacro {
         RecordedSolutionView recView = solutionHistory.createRecordedSolutionView(true);
         solutionHistory.rescanFile();
 
-        SolutionRepresentation solutionRepresentation =
-                ((SolutionRepresentation) sim.getRepresentationManager().getObject(nameSimhFile));
+//        SolutionRepresentation solutionRepresentation =
+//                ((SolutionRepresentation) sim.getRepresentationManager().getObject(nameSimhFile));
 
         String WorkPath = sim.getSessionDir() + File.separator + pathToModel;
         ImportCAEModel(sim, WorkPath);
@@ -94,9 +94,28 @@ public class MappingTemperature_Diffusor extends StarMacro {
             recView.setPhysicalTime(PointTime[CountTime]);
             soluTime = recView.getPhysicalTime();
             sim.println("\n----------Start processing soluTime="+soluTime+"s. State "+CountTime+"  from  "+ PointTime.length+"----------");
+
             for (String key : CFDParts.keySet()) {
                 Region region_0 = sim.getRegionManager().getRegion(key);
-                String table = CreateXYZTable(sim, cylindricalCoordinateSystem, solutionRepresentation, primitiveFieldFunction, region_0);
+                String table = CreateXYZTable(sim, cylindricalCoordinateSystem, recView, primitiveFieldFunction, region_0);
+                double maxCFDModel = MaxTheta(sim, cylindricalCoordinateSystem, region_0);
+                double minCFDModel = MinTheta(sim, cylindricalCoordinateSystem, region_0);
+
+                double anglePeriodic  = CFDParts.get(key)[2];
+                double numberOfRepeatsClockwise = (maxCAEModel - maxCFDModel) / anglePeriodic;
+                double numberOfRepeatsAntiClockwise = (minCAEModel - minCFDModel) / anglePeriodic;
+                sim.println("");
+                sim.println("region: " + region_0.getPresentationName() + " по часовой стрелки: "
+                        + numberOfRepeatsClockwise + " против часовой стрелки: " + numberOfRepeatsAntiClockwise);
+//                понять на сколько нужно размножать таблицу
+//                размножить таблицу
+//                сохранить в новый файл
+//                загрузить новый файл в стар
+//                создать функцию интерполяции
+//                мапинг на сетку CAE
+//                выгрузить данные
+//
+
                 DeliteXYZTable(sim, table);
             }
         }
@@ -160,7 +179,7 @@ public class MappingTemperature_Diffusor extends StarMacro {
         return cylindricalCoordinateSystem_1;
     }
 
-    private String CreateXYZTable(Simulation simulation_0, CylindricalCoordinateSystem cylindricalCoordinateSystem_0, SolutionRepresentation solutionRepresentation_0,
+    private String CreateXYZTable(Simulation simulation_0, CylindricalCoordinateSystem cylindricalCoordinateSystem_0, RecordedSolutionView recView,
                                 PrimitiveFieldFunction primitiveFieldFunction_0,
                                 NamedObject region_0){
 
@@ -170,13 +189,16 @@ public class MappingTemperature_Diffusor extends StarMacro {
         if (region_0.getPresentationName().contains("/")) replaceName = region_0.getPresentationName().replace("/", "_");
         xyzInternalTable_0.setPresentationName(replaceName);
         xyzInternalTable_0.setExtractVertexData(true);
+        SolutionRepresentation solutionRepresentation_0 = (SolutionRepresentation) recView.getRepresentation();
         xyzInternalTable_0.setRepresentation(solutionRepresentation_0);
         xyzInternalTable_0.getParts().setObjects(region_0);
         xyzInternalTable_0.setFieldFunctions(new NeoObjectVector(new Object[] {primitiveFieldFunction_0}));
         xyzInternalTable_0.setCoordinateSystem(cylindricalCoordinateSystem_0);
         xyzInternalTable_0.extract();
         String WorkPath = simulation_0.getSessionDir() + File.separator;
-        xyzInternalTable_0.export(WorkPath + xyzInternalTable_0.getPresentationName() + ".csv", ",");
+
+        xyzInternalTable_0.export(WorkPath + xyzInternalTable_0.getPresentationName()
+                + "_" + String.format("%.1f", recView.getPhysicalTime()) + "s.csv", ",");
         return xyzInternalTable_0.getPresentationName();
     }
 
