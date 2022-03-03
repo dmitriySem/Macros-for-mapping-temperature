@@ -4,27 +4,28 @@ package macro;
 
 //Маппинг температуры полученного из расчета в упращенной постановки ГУ рода ТВ7-117СТ
 
-import java.io.*;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.*;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-
-import com.opencsv.CSVReader;
-import com.opencsv.exceptions.CsvException;
+import star.base.neo.*;
 import star.base.report.MaxReport;
 import star.base.report.MinReport;
 import star.base.report.Report;
-import star.cadmodeler.ExportedCartesianCoordinateSystem;
 import star.cae.common.CaeImportManager;
 import star.common.*;
-import star.base.neo.*;
 import star.mapping.DataMapperManager;
 import star.mapping.VolumeDataMapper;
 import star.mapping.VolumeTargetSpecification;
 import star.post.*;
+
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 public class MappingTemperature_Diffusor extends StarMacro {
 
@@ -97,18 +98,27 @@ public class MappingTemperature_Diffusor extends StarMacro {
         double maxCAEModel = MaxTheta(sim, cylindricalCoordinateSystem, importedVolume_0);
         double minCAEModel = MinTheta(sim, cylindricalCoordinateSystem, importedVolume_0);
 
-        double soluTime = 0;
+        String soluTime;
 
         UserFieldFunction userfieldFunction = null;
         VolumeDataMapper volumeDataMapper = null;
 
+        File newFile = new File(sim.getSessionDir() + File.separator + "MultiplyBody.csv");
+        PrintWriter printWriterNewFile = null;
+        try {
+            printWriterNewFile = new PrintWriter(newFile);
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        }
+        printWriterNewFile.append("\"Temperature (K)\",\"r (m)\",\"theta (deg)\",\"z (m)\"\n");
+
         for (int CountTime = 0; CountTime < PointTime.length; CountTime++) {
             recView.setPhysicalTime(PointTime[CountTime]);
-            soluTime = recView.getPhysicalTime();
+            soluTime = String.format("%.1f", recView.getPhysicalTime());
             sim.println("\n----------Start processing soluTime="+soluTime+"s. State "+CountTime+"  from  "+ PointTime.length+"----------");
 
-            File newFile = new File(sim.getSessionDir() + File.separator + "MultiplyBody_" +
-                    String.format("%.1f", recView.getPhysicalTime()) + "s.csv");
+
+
             for (String key : CFDParts.keySet()) {
                 Region region_0 = sim.getRegionManager().getRegion(key);
                 String table = CreateXYZTable(sim, cylindricalCoordinateSystem, recView, primitiveFieldFunction, region_0);
@@ -124,37 +134,25 @@ public class MappingTemperature_Diffusor extends StarMacro {
                 sim.println("region: " + region_0.getPresentationName() + " по часовой стрелки: "
                         + numberOfRepeatsClockwise + " против часовой стрелки: " + numberOfRepeatsAntiClockwise);
 
-                try {
-                    PrintWriter printWriterNewFile = new PrintWriter(newFile);
+
                     MultiplyTable(sim, table, numberOfRepeatsClockwise, numberOfRepeatsAntiClockwise, printWriterNewFile, CFDParts.get(key));
-
-                    printWriterNewFile.close();
-                } catch (FileNotFoundException e) {
-                    e.printStackTrace();
-                }
-
-//                размножить таблицу
-//                сохранить в новый файл
-//
-
             }
-
-            if (userfieldFunction.isEmpty()) userfieldFunction =
-                    createFieldFunction(sim, newFile.getName());
-            if (volumeDataMapper.isEmpty()) volumeDataMapper =
-                    createVolumeMapper(sim, userfieldFunction, importedModel_1);
+            if (userfieldFunction == null)
+                userfieldFunction = createFieldFunction(sim, newFile.getName());
+            if (volumeDataMapper == null) volumeDataMapper =
+                    createVolumeMapper(sim, userfieldFunction, importedVolume_0);
 
             volumeDataMapper.mapData();
 
             Units units_4 = sim.getUnitsManager().getObject("C");
             sim.get(ImportedModelManager.class).exportImportedVolumeMappedDataToFile(
-                    sim.getSessionDir() + File.separator + "_T_atTime_" +
-                            String.format("%.1f", recView.getPhysicalTime()) +"s.inp",
+                    sim.getSessionDir() + File.separator + "_T_atTime_" + soluTime +"s.inp",
                     new NeoObjectVector(new Object[] {importedVolume_0}), new StringVector(new String[] {"_mapT_"}), new StringVector(new String[] {"TemperatureField"}), "Temperature Field", new NeoObjectVector(new Object[] {units_4}), false);
 
-            newFile.delete();
+//            newFile.delete();
         }
-        removeBodies(sim, recView, cylindricalCoordinateSystem, volumeDataMapper, userfieldFunction);
+        printWriterNewFile.close();
+//        removeBodies(sim, recView, cylindricalCoordinateSystem, volumeDataMapper, userfieldFunction);
 
     }
 
@@ -163,6 +161,7 @@ public class MappingTemperature_Diffusor extends StarMacro {
         //--  nameBody,     {offsetZ, offsetTheta, angle of periodics}
 //        String sessionDir = sim.getSessionDir() + File.separator;
         File file = new File( nameCSVFile);
+
         try {
             Files.lines(Path.of(file.getAbsolutePath())).skip(1).
                     forEach(x -> printWriterNewFile.append(x).append("\n"));
@@ -172,22 +171,39 @@ public class MappingTemperature_Diffusor extends StarMacro {
             sim.println(FileContent.size() + " lines read of file's " +  file.getName());
 
 
-//            for (int nClockwise=1; nClockwise <= numberOfRepeatsClockwise; nClockwise++){
+            for (int nClockwise=1; nClockwise <= numberOfRepeatsClockwise; nClockwise++){
 ////                bufferNewFile.write(FileContent.forEach(strings -> {
 ////                    Double.parseDouble(strings[0]);
 ////                }));
-//                for (int i = 0; i < FileContent.size(); i++) {
-//
+                for (int i = 1; i < FileContent.size(); i++) {
+                    printWriterNewFile.append(FileContent.get(i)[0] + "," + FileContent.get(i)[1] + "," +
+                                    String.format("%.6f", Double.parseDouble(FileContent.get(i)[2]) + AtributeCFDParts[1]*i) + ","
+                            + FileContent.get(i)[3] +"\n");
 //                    bufferNewFile.append(String.format("%.3f", Double.parseDouble(FileContent.get(i)[0]) - 273.15) + "," +
 //                            FileContent.get(i)[1] + "," +
 //                            String.format("%.6f", Double.parseDouble(FileContent.get(i)[2]) + ) + "," +
 //                            FileContent.get(i)[3] +"\n"
 //
 //                    );
-//                }
+                }
+            }
+
+            for (int nAntiClockwise=1; nAntiClockwise <= numberOfRepeatsAntiClockwise; nAntiClockwise++){
+////                bufferNewFile.write(FileContent.forEach(strings -> {
+////                    Double.parseDouble(strings[0]);
+////                }));
+                for (int i = 1; i < FileContent.size(); i++) {
+                    printWriterNewFile.append(FileContent.get(i)[0] + "," + FileContent.get(i)[1] + "," +
+                            String.format("%.6f", Double.parseDouble(FileContent.get(i)[2]) + AtributeCFDParts[1]*i) + ","
+                            + FileContent.get(i)[3] +"\n");
+//                    bufferNewFile.append(String.format("%.3f", Double.parseDouble(FileContent.get(i)[0]) - 273.15) + "," +
+//                            FileContent.get(i)[1] + "," +
+//                            String.format("%.6f", Double.parseDouble(FileContent.get(i)[2]) + ) + "," +
+//                            FileContent.get(i)[3] +"\n"
 //
-//
-//            }
+//                    );
+                }
+            }
 
             file.delete();
 
@@ -200,11 +216,11 @@ public class MappingTemperature_Diffusor extends StarMacro {
     }
 
     private VolumeDataMapper createVolumeMapper (Simulation sim, UserFieldFunction userFieldFunction1,
-                              ImportedModel importedModel) {
+                                                 ImportedVolume importedVolume) {
         VolumeDataMapper volumeDataMapper1 = sim.get(DataMapperManager.class).
                 createMapper(VolumeDataMapper.class, "Volume Data Mapper");
         volumeDataMapper1.getSourceParts().setQuery(null);
-        volumeDataMapper1.getSourceParts().setObjects(importedModel);
+        volumeDataMapper1.getSourceParts().setObjects(importedVolume);
         volumeDataMapper1.setUpdateAvailableFields(true);
         volumeDataMapper1.setScalarFieldFunctions(new NeoObjectVector(new Object[] { userFieldFunction1}));
         volumeDataMapper1.setMappedFieldNames(NeoProperty.fromString("{\'Volume 1\': {\'_myT\': \'_mapT_\'}}"));
@@ -212,7 +228,7 @@ public class MappingTemperature_Diffusor extends StarMacro {
                 ((VolumeTargetSpecification) volumeDataMapper1.
                         getTargetSpecificationManager().getObject("Volume 1"));
         volumeTargetSpecification1.getTargetParts().setQuery(null);
-        volumeTargetSpecification1.getTargetParts().setObjects(importedModel);
+        volumeTargetSpecification1.getTargetParts().setObjects(importedVolume);
         volumeTargetSpecification1.setDataMappingMethod(1);
         return volumeDataMapper1;
     }
