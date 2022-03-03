@@ -4,10 +4,16 @@ package macro;
 
 //Маппинг температуры полученного из расчета в упращенной постановки ГУ рода ТВ7-117СТ
 
-import java.io.File;
+import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
+import com.opencsv.CSVReader;
+import com.opencsv.exceptions.CsvException;
 import star.base.report.MaxReport;
 import star.base.report.MinReport;
 import star.base.report.Report;
@@ -22,7 +28,7 @@ public class MappingTemperature_Diffusor extends StarMacro {
     public void execute() {
 
         Map<String, double[]> CFDParts = new HashMap<String, double[]>();
-        //--  nameBody,     {offsetZ, offsetTheta, angle of periodics("-" против часовой стрелки, "+" - по часовой стрелки ось вращения ось X)}
+        //--  nameBody,     {offsetZ, offsetTheta, angle of periodics}
         CFDParts.put("1/8.1/8 18",new double[]{0,0,45});
         CFDParts.put("1/8.1/8 20",new double[]{0,0,45});
         CFDParts.put("1/8.1/8 21",new double[]{0,0,45});
@@ -100,14 +106,22 @@ public class MappingTemperature_Diffusor extends StarMacro {
                 String table = CreateXYZTable(sim, cylindricalCoordinateSystem, recView, primitiveFieldFunction, region_0);
                 double maxCFDModel = MaxTheta(sim, cylindricalCoordinateSystem, region_0);
                 double minCFDModel = MinTheta(sim, cylindricalCoordinateSystem, region_0);
-
                 double anglePeriodic  = CFDParts.get(key)[2];
-                double numberOfRepeatsClockwise = (maxCAEModel - maxCFDModel) / anglePeriodic;
-                double numberOfRepeatsAntiClockwise = (minCAEModel - minCFDModel) / anglePeriodic;
+
+                int numberOfRepeatsClockwise = (int) Math.ceil(Math.abs(Math.abs(maxCAEModel) - Math.abs(maxCFDModel)) / anglePeriodic) + 1;
+                int numberOfRepeatsAntiClockwise = (int) Math.ceil(Math.abs(Math.abs(minCAEModel) - Math.abs(minCFDModel)) / anglePeriodic) + 1;
+
+
                 sim.println("");
                 sim.println("region: " + region_0.getPresentationName() + " по часовой стрелки: "
                         + numberOfRepeatsClockwise + " против часовой стрелки: " + numberOfRepeatsAntiClockwise);
-//                понять на сколько нужно размножать таблицу
+
+                sim.println("1");
+                File newFile = new File(sim.getSessionDir() + File.separator + "MultiplyBody.csv");
+
+                MultiplyTable(sim, table, numberOfRepeatsClockwise, numberOfRepeatsAntiClockwise, newFile, CFDParts.get(key));
+
+
 //                размножить таблицу
 //                сохранить в новый файл
 //                загрузить новый файл в стар
@@ -116,10 +130,52 @@ public class MappingTemperature_Diffusor extends StarMacro {
 //                выгрузить данные
 //
 
-                DeliteXYZTable(sim, table);
             }
         }
         removeBodies(sim, recView, cylindricalCoordinateSystem);
+
+    }
+
+    private void MultiplyTable(Simulation sim, String nameCSVFile, int numberOfRepeatsClockwise, int numberOfRepeatsAntiClockwise, File newFile,double[] AtributeCFDParts){
+        //--  nameBody,     {offsetZ, offsetTheta, angle of periodics}
+//        String sessionDir = sim.getSessionDir() + File.separator;
+        File file = new File( nameCSVFile);
+        try {
+
+            PrintWriter printWriterNewFile = new PrintWriter(newFile);
+
+            Files.lines(Path.of(file.getAbsolutePath())).skip(1).
+                    forEach(printWriterNewFile::println);
+
+            List<String[]> FileContent = Files.lines(Path.of(file.getAbsolutePath())).skip(1).
+                    map(line -> line.split(",")).collect(Collectors.toList());
+            sim.println(FileContent.size() + " lines read of file's " +  file.getName());
+
+
+//            for (int nClockwise=1; nClockwise <= numberOfRepeatsClockwise; nClockwise++){
+////                bufferNewFile.write(FileContent.forEach(strings -> {
+////                    Double.parseDouble(strings[0]);
+////                }));
+//                for (int i = 0; i < FileContent.size(); i++) {
+//
+//                    bufferNewFile.append(String.format("%.3f", Double.parseDouble(FileContent.get(i)[0]) - 273.15) + "," +
+//                            FileContent.get(i)[1] + "," +
+//                            String.format("%.6f", Double.parseDouble(FileContent.get(i)[2]) + ) + "," +
+//                            FileContent.get(i)[3] +"\n"
+//
+//                    );
+//                }
+//
+//
+//            }
+            printWriterNewFile.close();
+            file.delete();
+
+        } catch (IOException e) {
+            sim.println(e.toString());
+//            e.printStackTrace();
+        }
+
 
     }
 
@@ -195,11 +251,12 @@ public class MappingTemperature_Diffusor extends StarMacro {
         xyzInternalTable_0.setFieldFunctions(new NeoObjectVector(new Object[] {primitiveFieldFunction_0}));
         xyzInternalTable_0.setCoordinateSystem(cylindricalCoordinateSystem_0);
         xyzInternalTable_0.extract();
-        String WorkPath = simulation_0.getSessionDir() + File.separator;
+        String WorkPath = simulation_0.getSessionDir() + File.separator + xyzInternalTable_0.getPresentationName()
+                + "_" + String.format("%.1f", recView.getPhysicalTime()) + "s.csv";
 
-        xyzInternalTable_0.export(WorkPath + xyzInternalTable_0.getPresentationName()
-                + "_" + String.format("%.1f", recView.getPhysicalTime()) + "s.csv", ",");
-        return xyzInternalTable_0.getPresentationName();
+        xyzInternalTable_0.export(WorkPath, ",");
+        DeliteXYZTable(simulation_0, xyzInternalTable_0);
+        return WorkPath;
     }
 
     private void CreateXYZTable(Simulation simulation_0, CylindricalCoordinateSystem cylindricalCoordinateSystem_0, SolutionRepresentation solutionRepresentation_0,
@@ -225,6 +282,10 @@ public class MappingTemperature_Diffusor extends StarMacro {
                 ((XyzInternalTable) simulation_0.getTableManager().getTable(name));
         simulation_0.getTableManager().remove(xyzInternalTable_0);
 
+    }
+
+    private void DeliteXYZTable(Simulation simulation_0, XyzInternalTable xyzInternalTable_0){
+        simulation_0.getTableManager().remove(xyzInternalTable_0);
     }
 
     private void removeBodies(Simulation sim, RecordedSolutionView recView, CylindricalCoordinateSystem cylindricalCoordinateSystem ){
