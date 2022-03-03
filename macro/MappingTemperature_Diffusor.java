@@ -21,11 +21,14 @@ import star.cadmodeler.ExportedCartesianCoordinateSystem;
 import star.cae.common.CaeImportManager;
 import star.common.*;
 import star.base.neo.*;
+import star.mapping.DataMapperManager;
+import star.mapping.VolumeDataMapper;
+import star.mapping.VolumeTargetSpecification;
 import star.post.*;
 
 public class MappingTemperature_Diffusor extends StarMacro {
 
-    public void execute() {
+    public void execute(){
 
         Map<String, double[]> CFDParts = new HashMap<String, double[]>();
         //--  nameBody,     {offsetZ, offsetTheta, angle of periodics}
@@ -84,7 +87,7 @@ public class MappingTemperature_Diffusor extends StarMacro {
 //        List<Region> list = new ArrayList<>();
 //        list.add(region_0);
 
-        CylindricalCoordinateSystem cylindricalCoordinateSystem = CreateCylindricalCoordinateSystem(sim);
+        CylindricalCoordinateSystem cylindricalCoordinateSystem = createCylindricalCoordinateSystem(sim);
 
         ImportedModel importedModel_1 =
                  sim.get(ImportedModelManager.class).getImportedModel("Abaqus: model_01");
@@ -96,11 +99,16 @@ public class MappingTemperature_Diffusor extends StarMacro {
 
         double soluTime = 0;
 
+        UserFieldFunction userfieldFunction = null;
+        VolumeDataMapper volumeDataMapper = null;
+
         for (int CountTime = 0; CountTime < PointTime.length; CountTime++) {
             recView.setPhysicalTime(PointTime[CountTime]);
             soluTime = recView.getPhysicalTime();
             sim.println("\n----------Start processing soluTime="+soluTime+"s. State "+CountTime+"  from  "+ PointTime.length+"----------");
 
+            File newFile = new File(sim.getSessionDir() + File.separator + "MultiplyBody_" +
+                    String.format("%.1f", recView.getPhysicalTime()) + "s.csv");
             for (String key : CFDParts.keySet()) {
                 Region region_0 = sim.getRegionManager().getRegion(key);
                 String table = CreateXYZTable(sim, cylindricalCoordinateSystem, recView, primitiveFieldFunction, region_0);
@@ -116,36 +124,48 @@ public class MappingTemperature_Diffusor extends StarMacro {
                 sim.println("region: " + region_0.getPresentationName() + " по часовой стрелки: "
                         + numberOfRepeatsClockwise + " против часовой стрелки: " + numberOfRepeatsAntiClockwise);
 
-                sim.println("1");
-                File newFile = new File(sim.getSessionDir() + File.separator + "MultiplyBody.csv");
+                try {
+                    PrintWriter printWriterNewFile = new PrintWriter(newFile);
+                    MultiplyTable(sim, table, numberOfRepeatsClockwise, numberOfRepeatsAntiClockwise, printWriterNewFile, CFDParts.get(key));
 
-                MultiplyTable(sim, table, numberOfRepeatsClockwise, numberOfRepeatsAntiClockwise, newFile, CFDParts.get(key));
-
+                    printWriterNewFile.close();
+                } catch (FileNotFoundException e) {
+                    e.printStackTrace();
+                }
 
 //                размножить таблицу
 //                сохранить в новый файл
-//                загрузить новый файл в стар
-//                создать функцию интерполяции
-//                мапинг на сетку CAE
-//                выгрузить данные
 //
 
             }
+
+            if (userfieldFunction.isEmpty()) userfieldFunction =
+                    createFieldFunction(sim, newFile.getName());
+            if (volumeDataMapper.isEmpty()) volumeDataMapper =
+                    createVolumeMapper(sim, userfieldFunction, importedModel_1);
+
+            volumeDataMapper.mapData();
+
+            Units units_4 = sim.getUnitsManager().getObject("C");
+            sim.get(ImportedModelManager.class).exportImportedVolumeMappedDataToFile(
+                    sim.getSessionDir() + File.separator + "_T_atTime_" +
+                            String.format("%.1f", recView.getPhysicalTime()) +"s.inp",
+                    new NeoObjectVector(new Object[] {importedVolume_0}), new StringVector(new String[] {"_mapT_"}), new StringVector(new String[] {"TemperatureField"}), "Temperature Field", new NeoObjectVector(new Object[] {units_4}), false);
+
+            newFile.delete();
         }
-        removeBodies(sim, recView, cylindricalCoordinateSystem);
+        removeBodies(sim, recView, cylindricalCoordinateSystem, volumeDataMapper, userfieldFunction);
 
     }
 
-    private void MultiplyTable(Simulation sim, String nameCSVFile, int numberOfRepeatsClockwise, int numberOfRepeatsAntiClockwise, File newFile,double[] AtributeCFDParts){
+    private void MultiplyTable(Simulation sim, String nameCSVFile,
+                               int numberOfRepeatsClockwise, int numberOfRepeatsAntiClockwise, PrintWriter printWriterNewFile ,double[] AtributeCFDParts){
         //--  nameBody,     {offsetZ, offsetTheta, angle of periodics}
 //        String sessionDir = sim.getSessionDir() + File.separator;
         File file = new File( nameCSVFile);
         try {
-
-            PrintWriter printWriterNewFile = new PrintWriter(newFile);
-
             Files.lines(Path.of(file.getAbsolutePath())).skip(1).
-                    forEach(printWriterNewFile::println);
+                    forEach(x -> printWriterNewFile.append(x).append("\n"));
 
             List<String[]> FileContent = Files.lines(Path.of(file.getAbsolutePath())).skip(1).
                     map(line -> line.split(",")).collect(Collectors.toList());
@@ -168,7 +188,7 @@ public class MappingTemperature_Diffusor extends StarMacro {
 //
 //
 //            }
-            printWriterNewFile.close();
+
             file.delete();
 
         } catch (IOException e) {
@@ -179,7 +199,38 @@ public class MappingTemperature_Diffusor extends StarMacro {
 
     }
 
-    private double MaxTheta(Simulation simulation_0, CylindricalCoordinateSystem cylindricalCoordinateSystem_0, NamedObject object) {
+    private VolumeDataMapper createVolumeMapper (Simulation sim, UserFieldFunction userFieldFunction1,
+                              ImportedModel importedModel) {
+        VolumeDataMapper volumeDataMapper1 = sim.get(DataMapperManager.class).
+                createMapper(VolumeDataMapper.class, "Volume Data Mapper");
+        volumeDataMapper1.getSourceParts().setQuery(null);
+        volumeDataMapper1.getSourceParts().setObjects(importedModel);
+        volumeDataMapper1.setUpdateAvailableFields(true);
+        volumeDataMapper1.setScalarFieldFunctions(new NeoObjectVector(new Object[] { userFieldFunction1}));
+        volumeDataMapper1.setMappedFieldNames(NeoProperty.fromString("{\'Volume 1\': {\'_myT\': \'_mapT_\'}}"));
+        VolumeTargetSpecification volumeTargetSpecification1 =
+                ((VolumeTargetSpecification) volumeDataMapper1.
+                        getTargetSpecificationManager().getObject("Volume 1"));
+        volumeTargetSpecification1.getTargetParts().setQuery(null);
+        volumeTargetSpecification1.getTargetParts().setObjects(importedModel);
+        volumeTargetSpecification1.setDataMappingMethod(1);
+        return volumeDataMapper1;
+    }
+
+    private UserFieldFunction createFieldFunction(Simulation sim, String name){
+        FileTable fileTable1 = (FileTable) sim.getTableManager().createFromFile(name);
+        fileTable1.setPresentationName("tableT");
+        UserFieldFunction userFieldFunction1 = sim.getFieldFunctionManager().createFieldFunction();
+        userFieldFunction1.getTypeOption().setSelected(FieldFunctionTypeOption.Type.SCALAR);
+        userFieldFunction1.setPresentationName("_myT");
+        userFieldFunction1.setFunctionName("_myT");
+        userFieldFunction1.setDimensions(Dimensions.Builder().temperature(1).build());
+        userFieldFunction1.setDefinition("interpolatePositionTable(@Table(\"tableT\"), @CoordinateSystem(\"Cylindrical 1\"), \"Temperature\")");
+        return userFieldFunction1;
+    }
+
+    private double MaxTheta(Simulation simulation_0,
+                            CylindricalCoordinateSystem cylindricalCoordinateSystem_0, NamedObject object) {
 
         MaxReport maxReport_0 =
                 simulation_0.getReportManager().createReport(MaxReport.class);
@@ -198,7 +249,8 @@ public class MappingTemperature_Diffusor extends StarMacro {
     }
 
 
-    private double MinTheta(Simulation simulation_0, CylindricalCoordinateSystem cylindricalCoordinateSystem_0, NamedObject object){
+    private double MinTheta(Simulation simulation_0,
+                            CylindricalCoordinateSystem cylindricalCoordinateSystem_0, NamedObject object){
 
         MinReport minReport_0 =
                 simulation_0.getReportManager().createReport(MinReport.class);
@@ -223,7 +275,7 @@ public class MappingTemperature_Diffusor extends StarMacro {
                 units_1, true, true, NeoProperty.fromString("{\'fuseConformal\': false, \'combineBoundaries\': false, \'combineRegions\': true, \'fuseTolerance\': 0.01, \'createParts\': true}"));
     }
 
-    private CylindricalCoordinateSystem CreateCylindricalCoordinateSystem(Simulation simulation_0) {
+    private CylindricalCoordinateSystem createCylindricalCoordinateSystem(Simulation simulation_0) {
 
         Units units_0 = simulation_0.getUnitsManager().getPreferredUnits(Dimensions.Builder().length(1).build());
         LabCoordinateSystem labCoordinateSystem_0 = simulation_0.getCoordinateSystemManager().getLabCoordinateSystem();
@@ -288,7 +340,9 @@ public class MappingTemperature_Diffusor extends StarMacro {
         simulation_0.getTableManager().remove(xyzInternalTable_0);
     }
 
-    private void removeBodies(Simulation sim, RecordedSolutionView recView, CylindricalCoordinateSystem cylindricalCoordinateSystem ){
+    private void removeBodies(Simulation sim, RecordedSolutionView recView,
+                              CylindricalCoordinateSystem cylindricalCoordinateSystem,
+                              VolumeDataMapper volumeDataMapper1, UserFieldFunction userFieldFunction1){
 
         sim.get(SolutionViewManager.class).removeSolutionViews(new NeoObjectVector(new Object[] {recView}));
 
@@ -304,10 +358,13 @@ public class MappingTemperature_Diffusor extends StarMacro {
                 filter((Report r) -> r.getPresentationName().matches("maxTheta_.*|minTheta_.*")).collect(Collectors.toList());
         sim.getReportManager().removeObjects(ListReports);
 
+        sim.get(DataMapperManager.class).removeObjects(volumeDataMapper1);
+        sim.getFieldFunctionManager().removeObjects(userFieldFunction1);
+
         LabCoordinateSystem labCoordinateSystem =
                 sim.getCoordinateSystemManager().getLabCoordinateSystem();
-//        CylindricalCoordinateSystem cylindricalCoordinateSystem_4 =
-//                ((CylindricalCoordinateSystem) labCoordinateSystem.getLocalCoordinateSystemManager().getObject(cylindricalCoordinateSystem.getPresentationName()));
         labCoordinateSystem.getLocalCoordinateSystemManager().remove(cylindricalCoordinateSystem);
+
+
     }
 }
