@@ -110,7 +110,8 @@ public class MappingTemperature_Diffusor extends StarMacro {
         } catch (FileNotFoundException e) {
             e.printStackTrace();
         }
-        printWriterNewFile.append("\"Temperature (K)\",\"r (m)\",\"theta (deg)\",\"z (m)\"\n");
+//        printWriterNewFile.append("\"Temperature (K)\",\"r (m)\",\"theta (deg)\",\"z (m)\"\n");
+        printWriterNewFile.append("\"Temperature\",\"r\",\"theta\",\"z\"\n");
 
         for (int CountTime = 0; CountTime < PointTime.length; CountTime++) {
             recView.setPhysicalTime(PointTime[CountTime]);
