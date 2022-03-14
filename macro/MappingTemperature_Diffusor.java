@@ -27,7 +27,7 @@ import java.util.stream.Collectors;
 
 public class MappingTemperature_Diffusor extends StarMacro {
 
-    private static final boolean flagDeleteAll = true;
+    private static final boolean flagDeleteAll = false;
     private static final boolean flagCreateScen = true;
 
     public void execute(){
@@ -57,6 +57,7 @@ public class MappingTemperature_Diffusor extends StarMacro {
         String nameSimhFile = "Pereh Rezhim";
         double [] PointTime = {288}; //20
         String pathToModel = "20220221_FEM1_Diff_for_CFD_R1" + File.separator + "model_01.inp";
+//        String pathToModel = "model_for_mapping" + File.separator + "model_01.inp";
 //        String pathToModel = "20220221_FEM2_Sub_Diff_for_CFD_R1" + File.separator + "model_01.inp";
 
 
@@ -111,7 +112,7 @@ public class MappingTemperature_Diffusor extends StarMacro {
         for (int CountTime = 0; CountTime < PointTime.length; CountTime++) {
             recView.setPhysicalTime(PointTime[CountTime]);
             soluTime = String.format("%.1f", recView.getPhysicalTime());
-            sim.println("\n----------Start processing soluTime="+soluTime+"s. State "+CountTime+"  from  "+ PointTime.length+"----------");
+            sim.println( System.lineSeparator() + "----------Start processing soluTime="+soluTime+"s. State "+CountTime+"  from  "+ PointTime.length+"----------");
 
             File fileForMultiplyBody = new File(sim.getSessionDir() + File.separator + "MultiplyBody_" + soluTime + "s.csv");
             PrintWriter pwForMultiplyBody = null;
@@ -121,7 +122,7 @@ public class MappingTemperature_Diffusor extends StarMacro {
                 e.printStackTrace();
             }
 //        pwForMultiplyBody.append("\"Temperature (K)\",\"r (m)\",\"theta (deg)\",\"z (m)\"\n");
-            pwForMultiplyBody.append("\"Temperature\",\"r\",\"theta\",\"z\"\n");
+            pwForMultiplyBody.append("\"Temperature\",\"r\",\"theta\",\"z\""+ System.lineSeparator());
 
 
 
@@ -221,13 +222,13 @@ public class MappingTemperature_Diffusor extends StarMacro {
                 for (int i = 0; i < FileContent.size(); i++)
                     pwForMultiplyBody.append(FileContent.get(i)[0] + "," + FileContent.get(i)[1] + "," +
                                     String.format("%.6f", Double.parseDouble(FileContent.get(i)[2]) + AtributeCFDParts[1] + AtributeCFDParts[2]*nClockwise) + "," +
-                            FileContent.get(i)[3] +"\n");
+                            FileContent.get(i)[3] + System.lineSeparator());
 
             for (int nAntiClockwise=1; nAntiClockwise <= numberOfRepeatsAntiClockwise; nAntiClockwise++)
                 for (int i = 0; i < FileContent.size(); i++)
                     pwForMultiplyBody.append(FileContent.get(i)[0] + "," + FileContent.get(i)[1] + "," +
                             String.format("%.6f", Double.parseDouble(FileContent.get(i)[2]) + AtributeCFDParts[1] - AtributeCFDParts[2]*nAntiClockwise) + "," +
-                            FileContent.get(i)[3] +"\n");
+                            FileContent.get(i)[3] + System.lineSeparator());
 
             if (flagDeleteAll) CSV_FileCFDregions.delete();
 
