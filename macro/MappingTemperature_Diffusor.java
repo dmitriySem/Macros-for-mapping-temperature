@@ -14,6 +14,7 @@ import star.mapping.DataMapperManager;
 import star.mapping.VolumeDataMapper;
 import star.mapping.VolumeTargetSpecification;
 import star.post.*;
+import star.vis.*;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -21,13 +22,13 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class MappingTemperature_Diffusor extends StarMacro {
+
+    private static final boolean flagDeleteAll = true;
+    private static final boolean flagCreateScen = true;
 
     public void execute(){
 
@@ -73,7 +74,7 @@ public class MappingTemperature_Diffusor extends StarMacro {
         String WorkPath = sim.getSessionDir() + File.separator + pathToModel;
         ImportCAEModel(sim, WorkPath);
 
-        PrimitiveFieldFunction primitiveFieldFunction =
+        PrimitiveFieldFunction Tem_primitiveFielFuncton =
                 ((PrimitiveFieldFunction) sim.getFieldFunctionManager().getFunction("Temperature"));
 
 //        Region region_0 = sim.getRegionManager().getRegion("1/49 otbor v polost 1");
@@ -95,34 +96,38 @@ public class MappingTemperature_Diffusor extends StarMacro {
         ImportedVolume importedVolume_0 =
                 importedModel_1.getImportedVolumeManager().getImportedVolume("PART-1-1");
 
+
+
         double maxCAEModel = MaxTheta(sim, cylindricalCoordinateSystem, importedVolume_0);
         double minCAEModel = MinTheta(sim, cylindricalCoordinateSystem, importedVolume_0);
 
         String soluTime;
 
-        UserFieldFunction userfieldFunction = null;
+        UserFieldFunction MulInterpolationFunction = null;
         VolumeDataMapper volumeDataMapper = null;
 
-        File newFile = new File(sim.getSessionDir() + File.separator + "MultiplyBody.csv");
-        PrintWriter printWriterNewFile = null;
-        try {
-            printWriterNewFile = new PrintWriter(newFile);
-        } catch (FileNotFoundException e) {
-            e.printStackTrace();
-        }
-//        printWriterNewFile.append("\"Temperature (K)\",\"r (m)\",\"theta (deg)\",\"z (m)\"\n");
-        printWriterNewFile.append("\"Temperature\",\"r\",\"theta\",\"z\"\n");
+
 
         for (int CountTime = 0; CountTime < PointTime.length; CountTime++) {
             recView.setPhysicalTime(PointTime[CountTime]);
             soluTime = String.format("%.1f", recView.getPhysicalTime());
             sim.println("\n----------Start processing soluTime="+soluTime+"s. State "+CountTime+"  from  "+ PointTime.length+"----------");
 
+            File fileForMultiplyBody = new File(sim.getSessionDir() + File.separator + "MultiplyBody_" + soluTime + "s.csv");
+            PrintWriter pwForMultiplyBody = null;
+            try {
+                pwForMultiplyBody = new PrintWriter(fileForMultiplyBody);
+            } catch (FileNotFoundException e) {
+                e.printStackTrace();
+            }
+//        pwForMultiplyBody.append("\"Temperature (K)\",\"r (m)\",\"theta (deg)\",\"z (m)\"\n");
+            pwForMultiplyBody.append("\"Temperature\",\"r\",\"theta\",\"z\"\n");
+
 
 
             for (String key : CFDParts.keySet()) {
                 Region region_0 = sim.getRegionManager().getRegion(key);
-                String table = CreateXYZTable(sim, cylindricalCoordinateSystem, recView, primitiveFieldFunction, region_0);
+                String tableCFDRegions = CreateXYZTable(sim, cylindricalCoordinateSystem, recView, Tem_primitiveFielFuncton, region_0);
                 double maxCFDModel = MaxTheta(sim, cylindricalCoordinateSystem, region_0);
                 double minCFDModel = MinTheta(sim, cylindricalCoordinateSystem, region_0);
                 double anglePeriodic  = CFDParts.get(key)[2];
@@ -136,77 +141,95 @@ public class MappingTemperature_Diffusor extends StarMacro {
                         + numberOfRepeatsClockwise + " против часовой стрелки: " + numberOfRepeatsAntiClockwise);
 
 
-                    MultiplyTable(sim, table, numberOfRepeatsClockwise, numberOfRepeatsAntiClockwise, printWriterNewFile, CFDParts.get(key));
+                    MultiplyTable(sim, tableCFDRegions, numberOfRepeatsClockwise, numberOfRepeatsAntiClockwise, pwForMultiplyBody, CFDParts.get(key));
             }
-            if (userfieldFunction == null)
-                userfieldFunction = createFieldFunction(sim, newFile.getName());
+            if (MulInterpolationFunction == null)
+                MulInterpolationFunction = createFieldFunction(sim, fileForMultiplyBody.getName());
             if (volumeDataMapper == null) volumeDataMapper =
-                    createVolumeMapper(sim, userfieldFunction, importedVolume_0);
+                    createVolumeMapper(sim, MulInterpolationFunction, importedVolume_0);
 
             volumeDataMapper.mapData();
+
+            String[] split = volumeDataMapper.getMappedFieldNames().get("Volume 1").toString().split("=");
+            String substring = split[1].substring(0, split[1].length()-1);
+            PrimitiveFieldFunction MapPrimitiveFieldFunction =
+                    ((PrimitiveFieldFunction) sim.getFieldFunctionManager().getFunction(substring));
 
             Units units_4 = sim.getUnitsManager().getObject("C");
             sim.get(ImportedModelManager.class).exportImportedVolumeMappedDataToFile(
                     sim.getSessionDir() + File.separator + "_T_atTime_" + soluTime +"s.inp",
                     new NeoObjectVector(new Object[] {importedVolume_0}), new StringVector(new String[] {"_mapT_"}), new StringVector(new String[] {"TemperatureField"}), "Temperature Field", new NeoObjectVector(new Object[] {units_4}), false);
 
-//            newFile.delete();
+            if (flagCreateScen) {
+                ArrayList<Region> list = new ArrayList<>();
+                for (Region region : sim.getRegionManager().getRegions()) {
+                    String presentationName = region.getPresentationName();
+                    if ( CFDParts.keySet().contains(presentationName)) list.add(region);
+
+                }
+
+                Scene cfd_t_1 = createScene(sim, "CFD_T_1", Tem_primitiveFielFuncton, list, recView.getRepresentation(),
+                        new double[]{0.7218801057337993, -0.09891704525508244, 0.08057583835588034},
+                        new double[]{0.2841167804282861, -0.5356499895703933, -0.3573962361882613},
+                        new double[]{0.0, -1.0, 0.0});
+                cfd_t_1.printAndWait(resolvePath(sim.getSessionDir() + File.separator + cfd_t_1.getPresentationName()  + "_Time=" + soluTime + ".png"), 1, 1200, 876, true, false);
+                Scene cfd_t_2 = createScene(sim, "CFD_T_2", Tem_primitiveFielFuncton, list, recView.getRepresentation(),
+                        new double[]{0.6574539626719649, -0.18675653871928133, 0.058162573239394666},
+                        new double[]{1.2863706758473494, 0.44216017445610356, 0.6870792864147792},
+                        new double[]{0.0, -1.0, 0.0});
+                cfd_t_2.printAndWait(resolvePath(sim.getSessionDir() + File.separator + cfd_t_2.getPresentationName()  + "_Time=" + soluTime + ".png"), 1, 1200, 876, true, false);
+                Scene CAE_T_1 = createScene(sim, "CAE_T_1", MapPrimitiveFieldFunction, importedVolume_0.getRegions(), sim.getRepresentationManager().getObject("Volume Mesh"),
+                        new double[]{0.693350006, -0.18895343765, 0.07291311303},
+                        new double[]{0.08823157014532335, -0.7940718735046766, -0.5322053228246765},
+                        new double[]{0.0, -1.0, 0.0});
+                CAE_T_1.printAndWait(resolvePath(sim.getSessionDir() + File.separator + CAE_T_1.getPresentationName()  + "_Time=" + soluTime + ".png"), 1, 1200, 876, true, false);
+                Scene CAE_T_2 = createScene(sim, "CAE_T_2", MapPrimitiveFieldFunction, importedVolume_0.getRegions(), sim.getRepresentationManager().getObject("Volume Mesh"),
+                        new double[]{0.693350006, -0.18895343765, 0.07291311303},
+                        new double[]{1.298468441854677, 0.41616499820467706, 0.6780315488846771},
+                        new double[]{0.0, -1.0, 0.0});
+                CAE_T_2.printAndWait(resolvePath(sim.getSessionDir() + File.separator + CAE_T_2.getPresentationName()  + "_Time=" + soluTime + ".png"), 1, 1200, 876, true, false);
+
+            }
+
+
+//            sim.getRegionManager().getRegions().stream().filter(region -> region.getPresentationName().equals()
+
+            if(flagDeleteAll) fileForMultiplyBody.delete();
+            pwForMultiplyBody.close();
+            sim.get(DataMapperManager.class).clearMappedFields();
         }
-        printWriterNewFile.close();
-//        removeBodies(sim, recView, cylindricalCoordinateSystem, volumeDataMapper, userfieldFunction);
+        if (flagDeleteAll) removeBodies(sim, recView, cylindricalCoordinateSystem, volumeDataMapper, MulInterpolationFunction);
 
     }
 
-    private void MultiplyTable(Simulation sim, String nameCSVFile,
-                               int numberOfRepeatsClockwise, int numberOfRepeatsAntiClockwise, PrintWriter printWriterNewFile ,double[] AtributeCFDParts){
+    private void MultiplyTable(Simulation sim, String nameCSVFileOfCFDregions,
+                               int numberOfRepeatsClockwise, int numberOfRepeatsAntiClockwise, PrintWriter pwForMultiplyBody ,double[] AtributeCFDParts){
         //--  nameBody,     {offsetZ, offsetTheta, angle of periodics}
 //        String sessionDir = sim.getSessionDir() + File.separator;
-        File file = new File( nameCSVFile);
+        File CSV_FileCFDregions = new File(nameCSVFileOfCFDregions);
 
         try {
-            Files.lines(Path.of(file.getAbsolutePath())).skip(1).
-                    forEach(x -> printWriterNewFile.append(x).append("\n"));
+          /*  Files.lines(Path.of(CSV_FileCFDregions.getAbsolutePath())).skip(1).
+                    forEach(x -> pwForMultiplyBody.append(x).append("\n"));*/
 
-            List<String[]> FileContent = Files.lines(Path.of(file.getAbsolutePath())).skip(1).
+            List<String[]> FileContent = Files.lines(Path.of(CSV_FileCFDregions.getAbsolutePath())).skip(1).
                     map(line -> line.split(",")).collect(Collectors.toList());
-            sim.println(FileContent.size() + " lines read of file's " +  file.getName());
+            sim.println(FileContent.size() + " lines read of file's " +  CSV_FileCFDregions.getName());
 
 
-            for (int nClockwise=1; nClockwise <= numberOfRepeatsClockwise; nClockwise++){
-////                bufferNewFile.write(FileContent.forEach(strings -> {
-////                    Double.parseDouble(strings[0]);
-////                }));
-                for (int i = 1; i < FileContent.size(); i++) {
-                    printWriterNewFile.append(FileContent.get(i)[0] + "," + FileContent.get(i)[1] + "," +
-                                    String.format("%.6f", Double.parseDouble(FileContent.get(i)[2]) + AtributeCFDParts[1]*i) + ","
-                            + FileContent.get(i)[3] +"\n");
-//                    bufferNewFile.append(String.format("%.3f", Double.parseDouble(FileContent.get(i)[0]) - 273.15) + "," +
-//                            FileContent.get(i)[1] + "," +
-//                            String.format("%.6f", Double.parseDouble(FileContent.get(i)[2]) + ) + "," +
-//                            FileContent.get(i)[3] +"\n"
-//
-//                    );
-                }
-            }
+            for (int nClockwise=0; nClockwise <= numberOfRepeatsClockwise; nClockwise++)
+                for (int i = 0; i < FileContent.size(); i++)
+                    pwForMultiplyBody.append(FileContent.get(i)[0] + "," + FileContent.get(i)[1] + "," +
+                                    String.format("%.6f", Double.parseDouble(FileContent.get(i)[2]) + AtributeCFDParts[1] + AtributeCFDParts[2]*nClockwise) + "," +
+                            FileContent.get(i)[3] +"\n");
 
-            for (int nAntiClockwise=1; nAntiClockwise <= numberOfRepeatsAntiClockwise; nAntiClockwise++){
-////                bufferNewFile.write(FileContent.forEach(strings -> {
-////                    Double.parseDouble(strings[0]);
-////                }));
-                for (int i = 1; i < FileContent.size(); i++) {
-                    printWriterNewFile.append(FileContent.get(i)[0] + "," + FileContent.get(i)[1] + "," +
-                            String.format("%.6f", Double.parseDouble(FileContent.get(i)[2]) + AtributeCFDParts[1]*i) + ","
-                            + FileContent.get(i)[3] +"\n");
-//                    bufferNewFile.append(String.format("%.3f", Double.parseDouble(FileContent.get(i)[0]) - 273.15) + "," +
-//                            FileContent.get(i)[1] + "," +
-//                            String.format("%.6f", Double.parseDouble(FileContent.get(i)[2]) + ) + "," +
-//                            FileContent.get(i)[3] +"\n"
-//
-//                    );
-                }
-            }
+            for (int nAntiClockwise=1; nAntiClockwise <= numberOfRepeatsAntiClockwise; nAntiClockwise++)
+                for (int i = 0; i < FileContent.size(); i++)
+                    pwForMultiplyBody.append(FileContent.get(i)[0] + "," + FileContent.get(i)[1] + "," +
+                            String.format("%.6f", Double.parseDouble(FileContent.get(i)[2]) + AtributeCFDParts[1] - AtributeCFDParts[2]*nAntiClockwise) + "," +
+                            FileContent.get(i)[3] +"\n");
 
-            file.delete();
+            if (flagDeleteAll) CSV_FileCFDregions.delete();
 
         } catch (IOException e) {
             sim.println(e.toString());
@@ -324,7 +347,7 @@ public class MappingTemperature_Diffusor extends StarMacro {
                 + "_" + String.format("%.1f", recView.getPhysicalTime()) + "s.csv";
 
         xyzInternalTable_0.export(WorkPath, ",");
-        DeliteXYZTable(simulation_0, xyzInternalTable_0);
+        if (flagDeleteAll)  DeliteXYZTable(simulation_0, xyzInternalTable_0);
         return WorkPath;
     }
 
@@ -378,10 +401,84 @@ public class MappingTemperature_Diffusor extends StarMacro {
         sim.get(DataMapperManager.class).removeObjects(volumeDataMapper1);
         sim.getFieldFunctionManager().removeObjects(userFieldFunction1);
 
-        LabCoordinateSystem labCoordinateSystem =
+        List<Scene> ListScenes = sim.getSceneManager().getObjects().stream().
+                filter((Scene r) -> r.getPresentationName().matches("CFD_.*|CAE_.*")).collect(Collectors.toList());
+        sim.getSceneManager().removeObjects(ListScenes);
+
+      /*  LabCoordinateSystem labCoordinateSystem =
                 sim.getCoordinateSystemManager().getLabCoordinateSystem();
-        labCoordinateSystem.getLocalCoordinateSystemManager().remove(cylindricalCoordinateSystem);
+        labCoordinateSystem.getLocalCoordinateSystemManager().remove(cylindricalCoordinateSystem);*/
 
 
     }
+
+    private Scene createScene(Simulation simulation_0, String nameScene, PrimitiveFieldFunction primitiveFieldFunction_0,
+                             List<Region> regions, Representation solutionRepresentation, double[] fp, double[] pos, double[] vu) {
+
+        simulation_0.getSceneManager().createEmptyScene(nameScene);
+        Scene scene_0 = simulation_0.getSceneManager().getSceneByName(nameScene);
+        scene_0.initializeAndWait();
+        SceneUpdate sceneUpdate_0 = scene_0.getSceneUpdate();
+        HardcopyProperties hardcopyProperties_0 = sceneUpdate_0.getHardcopyProperties();
+        hardcopyProperties_0.setCurrentResolutionWidth(1200);
+        hardcopyProperties_0.setCurrentResolutionHeight(876);
+        scene_0.resetCamera();
+        ScalarDisplayer scalarDisplayer_0 = scene_0.getDisplayerManager().createScalarDisplayer("Scalar");
+        scalarDisplayer_0.initialize();
+
+        scalarDisplayer_0.setRepresentation(solutionRepresentation);
+
+        ArrayList<Boundary> boundaries = new ArrayList<>();
+        regions.forEach(r -> boundaries.addAll(r.getBoundaryManager().getBoundaries()));
+
+        scalarDisplayer_0.getInputParts().setObjects(boundaries);
+
+        Units units_0 =
+                simulation_0.getUnitsManager().getObject("C");
+        scalarDisplayer_0.getScalarDisplayQuantity().setFieldFunction(primitiveFieldFunction_0);
+        scalarDisplayer_0.getScalarDisplayQuantity().setUnits(units_0);
+
+        Legend legend_0 = scalarDisplayer_0.getLegend();
+        PredefinedLookupTable predefinedLookupTable_0 =
+                ((PredefinedLookupTable) simulation_0.get(LookupTableManager.class).getObject("blue-yellow-red"));
+        legend_0.setLookupTable(predefinedLookupTable_0);
+        legend_0.updateLayout( new DoubleVector(new double[] {0.9f, 0.4f}), 0.02f, 0.3f, 1);
+        legend_0.setLevels(16);
+        legend_0.setTitleHeight(1.0E-4);
+        legend_0.setLabelHeight(0.02);
+        legend_0.setNumberOfLabels(10);
+        legend_0.setLabelFormat("%-6.1f");
+
+        scene_0.setBackgroundColorMode(BackgroundColorMode.SOLID);
+
+        CurrentView currentView_0 = scene_0.getCurrentView();
+//        fp = new double[] {0.7218801057337993, -0.09891704525508244, 0.08057583835588034}
+//        pos = new double[] {0.2841167804282861, -0.5356499895703933, -0.3573962361882613}
+//        vu = new double[] {0.0, -1.0, 0.0}
+        currentView_0.setInput( new DoubleVector(fp),
+                new DoubleVector(pos),
+                new DoubleVector(vu),
+                0.2f, 1, 30.0f);
+
+        SimpleAnnotation simpleAnnotation = null;
+        if (simpleAnnotation == null) simpleAnnotation = createAnnotation(simulation_0);
+
+       scene_0.getAnnotationPropManager().createPropForAnnotation(simpleAnnotation);
+
+       return scene_0;
+
+    }
+
+    private SimpleAnnotation createAnnotation(Simulation simulation_0){
+        SimpleAnnotation simpleAnnotation_0 =
+                simulation_0.getAnnotationManager().createAnnotation(SimpleAnnotation.class);
+        simpleAnnotation_0.setPresentationName("DEG");
+        simpleAnnotation_0.setBackground(true);
+        simpleAnnotation_0.setText("T,°C");
+        simpleAnnotation_0.setDefaultHeight(0.04f);
+        simpleAnnotation_0.setDefaultPosition(new DoubleVector(new  double[] {0.9f, 0.72f}));
+        return simpleAnnotation_0;
+
+    }
+
 }
