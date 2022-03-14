@@ -195,8 +195,8 @@ public class MappingTemperature_Diffusor extends StarMacro {
 
 //            sim.getRegionManager().getRegions().stream().filter(region -> region.getPresentationName().equals()
 
-            if(flagDeleteAll) fileForMultiplyBody.delete();
             pwForMultiplyBody.close();
+            if(flagDeleteAll) fileForMultiplyBody.delete();
             sim.get(DataMapperManager.class).clearMappedFields();
         }
         if (flagDeleteAll) removeBodies(sim, recView, cylindricalCoordinateSystem, volumeDataMapper, MulInterpolationFunction);
